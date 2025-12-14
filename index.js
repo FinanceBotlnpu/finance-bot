@@ -25,7 +25,56 @@ const Expense = mongoose.model('Expense', ExpenseSchema);
 // === 2. БОТ ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-bot.start((ctx) => ctx.reply('Привіт! 👋 Я онлайн 24/7.'));
+// Оновив текст привітання, додав сюди опис нових команд
+bot.start((ctx) => ctx.reply('Привіт! 👋 Я онлайн 24/7.\n\nТвій фінансовий помічник готовий.\n\n📌 **Як користуватись:**\nПиши: `100 кава` (сума пробіл категорія)\n\n📊 /stats - аналітика витрат (НОВЕ!)\n📋 /list - список усіх витрат\n🗑 /delete 1 - видалити запис номер 1\n🧨 /clear - видалити все'));
+
+// === НОВА КОМАНДА: СТАТИСТИКА ===
+bot.command('stats', async (ctx) => {
+    try {
+        const expenses = await Expense.find({ userId: ctx.from.id });
+
+        if (expenses.length === 0) return ctx.reply('📭 Немає даних для статистики. Додай витрати!');
+
+        // 1. Рахуємо загальну суму і групуємо по категоріях
+        let totalSum = 0;
+        const categoryStats = {};
+
+        expenses.forEach(item => {
+            totalSum += item.amount;
+            
+            // Якщо такої категорії ще немає - створюємо
+            if (!categoryStats[item.category]) {
+                categoryStats[item.category] = 0;
+            }
+            // Плюсуємо суму
+            categoryStats[item.category] += item.amount;
+        });
+
+        // 2. Сортуємо: від найдорожчих до найдешевших
+        const sortedCategories = Object.entries(categoryStats)
+            .sort((a, b) => b[1] - a[1]); 
+
+        // 3. Формуємо красиве повідомлення
+        let message = `📊 **Аналітика витрат:**\n\n`;
+        message += `💰 **Всього:** ${totalSum} грн\n\n`;
+
+        sortedCategories.forEach(([cat, sum]) => {
+            const percent = ((sum / totalSum) * 100).toFixed(1); // Рахуємо відсоток
+            // Малюємо "графік" квадратиками
+            const bar = '🟦'.repeat(Math.round(percent / 10)); 
+            
+            message += `${bar} ${percent}%\n**${cat.toUpperCase()}**: ${sum} грн\n\n`;
+        });
+
+        ctx.reply(message);
+
+    } catch (e) {
+        console.error(e);
+        ctx.reply('❌ Помилка при розрахунку статистики.');
+    }
+});
+
+// === СТАРІ КОМАНДИ (БЕЗ ЗМІН) ===
 
 // Команда LIST
 bot.command('list', async (ctx) => {
@@ -36,7 +85,9 @@ bot.command('list', async (ctx) => {
         let message = '📋 **Твої витрати:**\n\n';
         let total = 0;
         expenses.forEach((item, index) => {
-            message += `${index + 1}. ${item.amount} грн — ${item.category}\n`;
+            // Додав форматування дати (день.місяць)
+            const dateStr = item.date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'numeric' });
+            message += `${index + 1}. [${dateStr}] ${item.amount} грн — ${item.category}\n`;
             total += item.amount;
         });
         message += `\n💰 **Всього:** ${total} грн`;
@@ -44,7 +95,6 @@ bot.command('list', async (ctx) => {
     } catch (e) { ctx.reply('Помилка списку'); }
 });
 
-// === ОСЬ ЦЮ ЧАСТИНУ Я ПРОПУСТИВ МИНУЛОГО РАЗУ ===
 // Команда DELETE
 bot.command('delete', async (ctx) => {
     const args = ctx.message.text.split(' '); // /delete 1
@@ -61,7 +111,6 @@ bot.command('delete', async (ctx) => {
         ctx.reply(`✅ Видалено: ${item.amount} грн — ${item.category}`);
     } catch (e) { ctx.reply('Помилка видалення'); }
 });
-// ==================================================
 
 // Команда CLEAR
 bot.command('clear', async (ctx) => {
@@ -69,11 +118,13 @@ bot.command('clear', async (ctx) => {
     ctx.reply('🗑 Все видалено.');
 });
 
-// Обробка ТЕКСТУ
+// Обробка ТЕКСТУ (додавання витрати)
 bot.on('text', async (ctx) => {
     const parts = ctx.message.text.split(' ');
     const amount = parseFloat(parts[0]);
-    const category = parts.slice(1).join(' ');
+    
+    // ТУТ ЗМІНА: .toLowerCase() щоб "Кава" і "кава" були однакові
+    const category = parts.slice(1).join(' ').toLowerCase(); 
 
     if (!isNaN(amount) && category) {
         try {
@@ -81,7 +132,7 @@ bot.on('text', async (ctx) => {
             ctx.reply(`✅ Записано: ${amount} грн на "${category}"`);
         } catch (e) { ctx.reply('Помилка запису'); }
     } else {
-        ctx.reply('❌ Формат: 100 кава\nКоманди: /list, /delete номер');
+        ctx.reply('❌ Формат: 100 кава\nКоманди: /stats, /list, /delete номер');
     }
 });
 
